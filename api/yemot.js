@@ -1,5 +1,5 @@
 function sendYemot(res, text, options = {}) {
-  const { inputName = 'wm_nav', min = 1, max = 1, timeout = '5' } = options;
+  const { inputName = 'wm_nav', min = 1, max = 1, timeout = '5', inputType = 'Digits' } = options;
   res.status(200);
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
@@ -8,7 +8,7 @@ function sendYemot(res, text, options = {}) {
     .replace(/[.=]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  res.end(`read=t-${safe}=${inputName},no,${max},${min},${timeout},Digits,no,no,,,1,Ok`);
+  res.end(`read=t-${safe}=${inputName},no,${max},${min},${timeout},${inputType},no,no,,,1,Ok`);
 }
 function val(url, names) {
   for (const n of names) {
@@ -98,10 +98,10 @@ export default async function handler(req, res) {
   const countryCode = val(url, ['CountryCode']);
   const num = val(url, ['NumberInput']);
   try {
-    if (sat) return sendYemot(res, await satellite(sat) + ' לחיפוש לוויין נוסף, הקישו את שמו באנגלית.', { inputName: 'SatelliteName', min: 2, max: 30, timeout: '7' });
+    if (sat) return sendYemot(res, await satellite(sat) + ' לחיפוש לוויין נוסף, הקלידו את שמו באנגלית וסיימו בסולמית.', { inputName: 'SatelliteName', min: 2, max: 30, timeout: '7', inputType: 'EnglishKeyboard' });
     if (countryCode) {
-      if (!/^[a-z]{2}$/i.test(countryCode)) return sendYemot(res, 'קוד המדינה אינו תקין. הקישו שתי אותיות באנגלית, לדוגמה איי אל לישראל.', { inputName: 'CountryCode', min: 2, max: 2, timeout: '7' });
-      return sendYemot(res, await country(countryCode) + ' לחיפוש מדינה נוספת, הקישו קוד בן שתי אותיות באנגלית.', { inputName: 'CountryCode', min: 2, max: 2, timeout: '7' });
+      if (!/^[a-z]{2}$/i.test(countryCode)) return sendYemot(res, 'קוד המדינה אינו תקין. הקלידו שתי אותיות באנגלית, לדוגמה איי אל לישראל.', { inputName: 'CountryCode', min: 2, max: 2, timeout: '7', inputType: 'EnglishKeyboard' });
+      return sendYemot(res, await country(countryCode) + ' לחיפוש מדינה נוספת, הקלידו קוד בן שתי אותיות באנגלית וסיימו בסולמית.', { inputName: 'CountryCode', min: 2, max: 2, timeout: '7', inputType: 'EnglishKeyboard' });
     }
     if (num) {
       if (!/^-?\d{1,9}$/.test(num)) return sendYemot(res, 'המספר אינו תקין. הקישו מספר שלם עד תשע ספרות.', { inputName: 'NumberInput', min: 1, max: 9, timeout: '7' });
@@ -110,8 +110,8 @@ export default async function handler(req, res) {
     const choice = val(url, ['wm_nav', 'Choice', 'ApiPhoneInput', 'Digits', 'val']).replace(/[^0-9]/g, '');
     if (!choice) return sendYemot(res, menu(), { inputName: 'wm_nav', min: 1, max: 1, timeout: '3' });
     if (choice === '1') return sendYemot(res, await launches() + ' להאזנה חוזרת, הקישו 1.', { inputName: 'wm_nav', min: 1, max: 1, timeout: '7' });
-    if (choice === '2') return sendYemot(res, 'הקלידו את שם הלוויין באנגלית, או את מספרו הקטלוגי אם ידוע.', { inputName: 'SatelliteName', min: 2, max: 30, timeout: '7' });
-    if (choice === '3') return sendYemot(res, 'הקלידו קוד מדינה בן שתי אותיות באנגלית. לדוגמה איי אל לישראל, או יו אס לארצות הברית.', { inputName: 'CountryCode', min: 2, max: 2, timeout: '7' });
+    if (choice === '2') return sendYemot(res, 'הקלידו את שם הלוויין באנגלית באמצעות מקשי הטלפון. אפשר להחליף שפת מקלדת לפי האפשרויות במכשיר. לסיום הקישו סולמית.', { inputName: 'SatelliteName', min: 2, max: 30, timeout: '7', inputType: 'EnglishKeyboard' });
+    if (choice === '3') return sendYemot(res, 'הקלידו קוד מדינה בן שתי אותיות באנגלית. לדוגמה איי אל לישראל. לסיום הקישו סולמית.', { inputName: 'CountryCode', min: 2, max: 2, timeout: '7', inputType: 'EnglishKeyboard' });
     if (choice === '4') return sendYemot(res, 'הקישו מספר שלם, עד תשע ספרות, לקבלת עובדה מעניינת.', { inputName: 'NumberInput', min: 1, max: 9, timeout: '7' });
     if (choice === '5') return sendYemot(res, 'אפשרות מעברי הלוויינים עדיין אינה מחוברת למנוע חישוב מסלולים, ולכן לא ניתן למסור זמני מעבר מדויקים.', { inputName: 'wm_nav', min: 1, max: 1, timeout: '7' });
     if (choice === '6') return sendYemot(res, await earthquakes() + ' למידע מעודכן נוסף, הקישו 6.', { inputName: 'wm_nav', min: 1, max: 1, timeout: '7' });
