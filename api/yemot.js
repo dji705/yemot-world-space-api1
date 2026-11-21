@@ -3,7 +3,11 @@ function sendYemot(res, text, options = {}) {
   res.status(200);
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
-  const safe = String(text).replace(/[\r\n]+/g, ' ').replace(/=/g, ' ');
+  const safe = String(text)
+    .replace(/[\\r\\n]+/g, ' ')
+    .replace(/[.=]/g, ' ')
+    .replace(/\\s+/g, ' ')
+    .trim();
   res.end(`read=t-${safe}=${inputName},no,${max},${min},${timeout},Digits,no,no,,,1,Ok`);
 }
 function val(url, names) {
@@ -100,7 +104,7 @@ export default async function handler(req, res) {
       return sendYemot(res, await country(countryCode) + ' לחיפוש מדינה נוספת, הקישו קוד בן שתי אותיות באנגלית.', { inputName: 'CountryCode', min: 2, max: 2, timeout: '7' });
     }
     if (num) {
-      if (!/^-?\d{1,9}$/.test(num)) return sendYemot(res, 'המספר אינו תקין. הקישו מספר שלם עד תשע ספרות.', { inputName: 'NumberInput', min: 1, max: 9, timeout: '7' });
+      if (!/^-?\\d{1,9}$/.test(num)) return sendYemot(res, 'המספר אינו תקין. הקישו מספר שלם עד תשע ספרות.', { inputName: 'NumberInput', min: 1, max: 9, timeout: '7' });
       return sendYemot(res, await numberFact(num) + ' לעובדה על מספר נוסף, הקישו מספר שלם.', { inputName: 'NumberInput', min: 1, max: 9, timeout: '7' });
     }
     const choice = val(url, ['wm_nav', 'Choice', 'ApiPhoneInput', 'Digits', 'val']).replace(/[^0-9]/g, '');
