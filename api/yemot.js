@@ -22,7 +22,7 @@ function val(url, names) {
 function esc(v) { return String(v ?? '').replace(/[<>]/g, ' '); }
 function number(v) { return Number(v).toLocaleString('he-IL'); }
 function menu() {
-  return 'ברוכים הבאים למרכז מידע עולם וחלל. לשיאים עולמיים הקישו 1. לשיגורי חלל קרובים הקישו 2. למידע על מדינה הקישו 3. לעובדה מעניינת על מספר הקישו 4. למידע על מעברי לוויינים הקישו 5. לרעידות אדמה בעולם הקישו 6. למיקום תחנת החלל הקישו 7.';
+  return 'ברוכים הבאים למרכז מידע עולם וחלל. לשיאים עולמיים הקישו 1. לשיגורי חלל קרובים הקישו 2. למידע על מדינה הקישו 3. לעובדה מעניינת על מספר הקישו 4. למידע על מעברי לוויינים הקישו 5. לרעידות אדמה בעולם הקישו 6. למיקום תחנת החלל הקישו 7. לחיפוש שיאים בולטים לפי מדינה הקישו 9.';
 }
 function worldRecords() {
   const records = [
@@ -69,6 +69,37 @@ async function country(code) {
   const rows = Array.isArray(d?.[1]) ? d[1] : [];
   const row = rows.find(x => String(x.country?.id || '').toUpperCase() === normalized && x.value != null);
   return `${esc(item.name)}. אוכלוסייה לפי הנתון האחרון במאגר: ${row ? number(row.value) : 'אין נתון זמין'}. שנת הנתון: ${row?.date || 'לא ידועה'}. אזור בעולם: ${esc(item.region?.value || 'לא ידוע')}.`;
+}
+
+async function countryRecords(code) {
+  const normalized = String(code || '').replace(/\\s+/g, '').toUpperCase();
+  if (!/^[A-Z]{2}$/.test(normalized)) return 'קוד המדינה אינו תקין. הקלידו שתי אותיות באנגלית.';
+  const base = 'https://api.worldbank.org/v2/country/' + encodeURIComponent(normalized);
+  const info = await json(base + '?format=json');
+  const rows = Array.isArray(info?.[1]) ? info[1] : [];
+  const item = rows.find(x => String(x.iso2Code || '').toUpperCase() === normalized && x.region?.id !== 'NA');
+  if (!item) return 'לא נמצאה מדינה בקוד שהקשתם.';
+  const [popData, areaData] = await Promise.all([
+    json(base + '/indicator/SP.POP.TOTL?format=json&per_page=80'),
+    json(base + '/indicator/AG.LND.TOTL.K2?format=json&per_page=80')
+  ]);
+  const popRows = Array.isArray(popData?.[1]) ? popData[1] : [];
+  const areaRows = Array.isArray(areaData?.[1]) ? areaData[1] : [];
+  const pop = popRows.find(x => x.value != null);
+  const area = areaRows.find(x => x.value != null);
+  let peakText = 'הנקודה הגבוהה במדינה לא נמצאה במאגר';
+  try {
+    const sparql = 'SELECT ?peakLabel ?elevation WHERE { ?country wdt:P297 "' + normalized + '". OPTIONAL { ?country wdt:P610 ?peak. ?peak rdfs:label ?peakLabel FILTER(LANG(?peakLabel)="he" || LANG(?peakLabel)="en"). OPTIONAL { ?peak wdt:P2044 ?elevation. } } } LIMIT 1';
+    const url = 'https://query.wikidata.org/sparql?format=json&query=' + encodeURIComponent(sparql);
+    const wd = await json(url);
+    const binding = wd?.results?.bindings?.[0];
+    if (binding?.peakLabel?.value) {
+      const elevation = binding.elevation?.value ? Math.round(Number(binding.elevation.value)) + ' מטרים' : '';
+      peakText = 'הנקודה הגבוהה במדינה היא ' + esc(binding.peakLabel.value) + (elevation ? ', בגובה ' + elevation : '');
+    }
+  } catch (_) {}
+  const capital = item.capitalCity && item.capitalCity !== '' ? item.capitalCity : 'לא צוינה';
+  return 'שיאים ונתונים בולטים במדינת ' + esc(item.name) + '. עיר בירה: ' + esc(capital) + '. אוכלוסייה: ' + (pop ? number(pop.value) + ' לפי שנת ' + pop.date : 'אין נתון זמין') + '. שטח יבשתי: ' + (area ? number(Math.round(area.value)) + ' קילומטרים רבועים' : 'אין נתון זמין') + '. ' + peakText + '.';
 }
 
 async function earthquakes() {
@@ -122,12 +153,22 @@ export default async function handler(req, res) {
   const url = new URL(req.url, 'https://' + (req.headers?.host || 'localhost'));
   const key = sessionKey(url);
   const countryCode = val(url, ['CountryCode']);
+  const recordsCountryCode = val(url, ['RecordsCountryCode']);
+  const recordsAction = val(url, ['RecordsAction']);
   const num = val(url, ['NumberInput']);
   const countryAction = val(url, ['CountryAction']);
   const numberAction = val(url, ['NumberAction']);
   const choice = val(url, ['wm_nav', 'Choice', 'ApiPhoneInput', 'Digits', 'val']).replace(/[^0-9]/g, '');
 
   try {
+    if (recordsCountryCode) {
+      const cleaned = recordsCountryCode.replace(/\\s+/g, '');
+      if (!/^[a-z]{2}$/i.test(cleaned)) return sendYemot(res, 'קוד המדינה אינו תקין. הקלידו שתי אותיות באנגלית.', { inputName: 'RecordsCountryCode', min: 2, max: 2, timeout: '10', inputType: 'EnglishKeyboard' });
+      return sendYemot(res, await countryRecords(cleaned) + ' לחיפוש מדינה נוספת הקישו 1. לתפריט הראשי הקישו 0.', { inputName: 'RecordsAction', min: 1, max: 1, timeout: '8' });
+    }
+    if (recordsAction === '1') return sendYemot(res, 'הקלידו קוד מדינה בן שתי אותיות באנגלית, לדוגמה I L עבור ישראל.', { inputName: 'RecordsCountryCode', min: 2, max: 2, timeout: '10', inputType: 'EnglishKeyboard' });
+    if (recordsAction === '0') return sendYemot(res, menu(), { inputName: 'wm_nav', min: 1, max: 1, timeout: '5' });
+
     if (countryCode) {
       if (!/^[a-z]{2}$/i.test(countryCode.replace(/\s+/g, ''))) return sendYemot(res, 'קוד המדינה אינו תקין. הקלידו שתי אותיות באנגלית.', { inputName: 'CountryCode', min: 2, max: 2, timeout: '10', inputType: 'EnglishKeyboard' });
       return sendYemot(res, await country(countryCode) + ' לחיפוש מדינה נוספת הקישו 1. לתפריט הראשי הקישו 0.', { inputName: 'CountryAction', min: 1, max: 1, timeout: '8' });
@@ -149,6 +190,7 @@ export default async function handler(req, res) {
     if (choice === '5') return sendYemot(res, 'מעברי לוויינים מעל ישראל אינם זמינים כרגע.', { inputName: 'wm_nav', min: 1, max: 1, timeout: '8' });
     if (choice === '6') return sendYemot(res, await earthquakes() + ' לתפריט הראשי הקישו 0.', { inputName: 'EarthquakeAction', min: 1, max: 1, timeout: '8' });
     if (choice === '7') return sendYemot(res, await issPosition() + ' לתפריט הראשי הקישו 0.', { inputName: 'ISSAction', min: 1, max: 1, timeout: '8' });
+    if (choice === '9') return sendYemot(res, 'הקלידו קוד מדינה בן שתי אותיות באנגלית, לדוגמה I L עבור ישראל.', { inputName: 'RecordsCountryCode', min: 2, max: 2, timeout: '10', inputType: 'EnglishKeyboard' });
     return sendYemot(res, 'הבחירה לא זוהתה. ' + menu(), { inputName: 'wm_nav', min: 1, max: 1, timeout: '5' });
   } catch (e) {
     const msg = String(e?.message || 'תקלה לא ידועה').replace(/[.=\r\n]/g, ' ').slice(0, 180);
