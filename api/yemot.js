@@ -28,10 +28,13 @@ async function json(url) {
   return r.json();
 }
 async function launches() {
-  const d = await json('https://ll.thespacedevs.com/2.2.0/launch/upcoming/?limit=5');
+  const cached = await storeGet('yemot-space:cache:launches');
+  if (cached) return cached;
+  const d = await json('https://ll.thespacedevs.com/2.3.0/launches/upcoming/?limit=5&mode=list');
+
   const rows = (d.results || []).slice(0, 5);
   if (!rows.length) return 'לא נמצאו שיגורים קרובים במאגר.';
-  return 'השיגורים הקרובים. ' + rows.map((x, i) => {
+  const result = 'השיגורים הקרובים. ' + rows.map((x, i) => {
     const date = x.net ? new Intl.DateTimeFormat('he-IL', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Jerusalem' }).format(new Date(x.net)) : 'מועד לא ידוע';
     return `שיגור מספר ${i + 1}. ${esc(x.name)}. מועד ${date}. אתר השיגור: ${esc(x.pad?.location?.name || 'לא צוין')}.`;
   }).join(' ');
@@ -120,16 +123,21 @@ function sessionKey(url) {
   return 'yemot-space:' + encodeURIComponent(phone + ':' + did);
 }
 async function satelliteSearch(q) {
+  const cacheKey = 'yemot-space:cache:sat:' + encodeURIComponent(q.toLowerCase());
+  const cached = await storeGet(cacheKey);
+  if (cached) return cached;
   const numeric = /^\\d{1,8}$/.test(q);
   const endpoint = numeric
     ? 'https://celestrak.org/NORAD/elements/gp.php?CATNR=' + encodeURIComponent(q) + '&FORMAT=JSON'
     : 'https://celestrak.org/NORAD/elements/gp.php?NAME=' + encodeURIComponent(q) + '&FORMAT=JSON';
   const d = await json(endpoint);
-  return (Array.isArray(d) ? d : []).slice(0, 5).map(x => ({
+  const rows = (Array.isArray(d) ? d : []).slice(0, 5).map(x => ({
     name: String(x.OBJECT_NAME || 'לוויין ללא שם'),
     id: String(x.NORAD_CAT_ID || ''),
     period: x.ORBITAL_PERIOD == null ? null : Number(x.ORBITAL_PERIOD)
   })).filter(x => x.id);
+  await storeSet(cacheKey, rows, 7200);
+  return rows;
 }
 
 export default async function handler(req, res) {
