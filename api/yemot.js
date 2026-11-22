@@ -141,7 +141,7 @@ async function satelliteSearch(q) {
   const cacheKey = 'yemot-space:cache:sat:' + encodeURIComponent(q.toLowerCase());
   const cached = await storeGet(cacheKey);
   if (cached) return cached;
-  const numeric = /^\\d{1,8}$/.test(q);
+  const numeric = /^\d{1,8}$/.test(q);
   const endpoint = numeric
     ? 'https://celestrak.org/NORAD/elements/gp.php?CATNR=' + encodeURIComponent(q) + '&FORMAT=JSON'
     : 'https://celestrak.org/NORAD/elements/gp.php?NAME=' + encodeURIComponent(q) + '&FORMAT=JSON';
