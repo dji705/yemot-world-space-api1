@@ -92,6 +92,46 @@ async function numberFact(n) {
   const d = await json('https://numbersapi.com/' + encodeURIComponent(n) + '/trivia?json');
   return d.text ? esc(d.text) : 'לא נמצאה עובדה על המספר הזה.';
 }
+
+async function storeGet(key) {
+  const base = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!base || !token) return null;
+  const response = await fetch(base.replace(/\/$/, '') + '/get/' + encodeURIComponent(key), {
+    headers: { Authorization: 'Bearer ' + token }
+  });
+  if (!response.ok) throw new Error('שירות שמירת הנתונים אינו זמין');
+  const data = await response.json();
+  return data.result ? JSON.parse(data.result) : null;
+}
+async function storeSet(key, value, ttl = 600) {
+  const base = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!base || !token) return false;
+  const response = await fetch(base.replace(/\/$/, '') + '/set/' + encodeURIComponent(key) + '/' + encodeURIComponent(JSON.stringify(value)) + '?EX=' + ttl, {
+    headers: { Authorization: 'Bearer ' + token }
+  });
+  if (!response.ok) throw new Error('לא ניתן לשמור את נתוני החיפוש');
+  return true;
+}
+function sessionKey(url) {
+  const phone = val(url, ['ApiPhone']) || 'anonymous';
+  const did = val(url, ['ApiDID', 'ApiRealDID']) || 'default';
+  return 'yemot-space:' + encodeURIComponent(phone + ':' + did);
+}
+async function satelliteSearch(q) {
+  const numeric = /^\\d{1,8}$/.test(q);
+  const endpoint = numeric
+    ? 'https://celestrak.org/NORAD/elements/gp.php?CATNR=' + encodeURIComponent(q) + '&FORMAT=JSON'
+    : 'https://celestrak.org/NORAD/elements/gp.php?NAME=' + encodeURIComponent(q) + '&FORMAT=JSON';
+  const d = await json(endpoint);
+  return (Array.isArray(d) ? d : []).slice(0, 5).map(x => ({
+    name: String(x.OBJECT_NAME || 'לוויין ללא שם'),
+    id: String(x.NORAD_CAT_ID || ''),
+    period: x.ORBITAL_PERIOD == null ? null : Number(x.ORBITAL_PERIOD)
+  })).filter(x => x.id);
+}
+
 export default async function handler(req, res) {
   const url = new URL(req.url, 'https://' + (req.headers?.host || 'localhost'));
   const sat = val(url, ['SatelliteName']);
