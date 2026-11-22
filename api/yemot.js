@@ -142,32 +142,61 @@ async function satelliteSearch(q) {
 
 export default async function handler(req, res) {
   const url = new URL(req.url, 'https://' + (req.headers?.host || 'localhost'));
+  const key = sessionKey(url);
   const sat = val(url, ['SatelliteName']);
+  const satChoice = val(url, ['SatelliteChoice']);
+  const satAction = val(url, ['SatelliteAction']);
   const countryCode = val(url, ['CountryCode']);
   const num = val(url, ['NumberInput']);
+  const countryAction = val(url, ['CountryAction']);
+  const numberAction = val(url, ['NumberAction']);
+  const choice = val(url, ['wm_nav', 'Choice', 'ApiPhoneInput', 'Digits', 'val']).replace(/[^0-9]/g, '');
+
   try {
-    if (sat) return sendYemot(res, await satellite(sat) + ' לחיפוש לוויין נוסף, הקלידו את שמו באנגלית וסיימו בסולמית.', { inputName: 'SatelliteName', min: 2, max: 30, timeout: '7', inputType: 'EnglishKeyboard' });
+    if (sat) {
+      const rows = await satelliteSearch(sat);
+      if (!rows.length) return sendYemot(res, 'לא נמצאו לוויינים מתאימים. נסו שם באנגלית או מספר קטלוגי אחר. לחיפוש חדש הקישו 8. לתפריט הראשי הקישו 0.', { inputName: 'SatelliteAction', min: 1, max: 1, timeout: '8' });
+      const saved = await storeSet(key + ':satellites', rows, 600);
+      const spoken = rows.map((x, i) => 'אפשרות ' + (i + 1) + '. ' + esc(x.name) + '.').join(' ');
+      if (!saved) return sendYemot(res, 'נמצאו ' + rows.length + ' לוויינים. ' + spoken + ' כדי לבחור תוצאה יש להפעיל שמירת נתונים בשרת. לחיפוש חדש הקישו 8.', { inputName: 'SatelliteAction', min: 1, max: 1, timeout: '8' });
+      return sendYemot(res, 'נמצאו ' + rows.length + ' לוויינים. ' + spoken + ' לבחירת אפשרות אחת עד חמש הקישו את מספר האפשרות. לחיפוש חדש הקישו 8. לתפריט הראשי הקישו 0.', { inputName: 'SatelliteChoice', min: 1, max: 1, timeout: '8' });
+    }
+    if (satChoice) {
+      const rows = await storeGet(key + ':satellites');
+      const n = Number(satChoice);
+      if (!rows || !Number.isInteger(n) || n < 1 || n > rows.length) return sendYemot(res, 'הבחירה אינה תקפה או שפג תוקף החיפוש. לחיפוש חדש הקישו 8. לתפריט הראשי הקישו 0.', { inputName: 'SatelliteAction', min: 1, max: 1, timeout: '8' });
+      const x = rows[n - 1];
+      return sendYemot(res, 'בחרתם ' + esc(x.name) + '. מספר קטלוגי ' + x.id + '. ' + (x.period ? 'זמן הקפה ' + Math.round(x.period) + ' דקות.' : '') + ' לחיפוש לוויין נוסף הקישו 8. לתפריט הראשי הקישו 0.', { inputName: 'SatelliteAction', min: 1, max: 1, timeout: '8' });
+    }
+    if (satAction === '8') return sendYemot(res, 'הקלידו שם לוויין באנגלית או מספר NORAD, וסיימו בסולמית.', { inputName: 'SatelliteName', min: 1, max: 40, timeout: '10', inputType: 'EnglishKeyboard' });
+    if (satAction === '0') return sendYemot(res, menu(), { inputName: 'wm_nav', min: 1, max: 1, timeout: '5' });
+
     if (countryCode) {
-      if (!/^[a-z]{2}$/i.test(countryCode)) return sendYemot(res, 'קוד המדינה אינו תקין. הקלידו שתי אותיות באנגלית, לדוגמה איי אל לישראל.', { inputName: 'CountryCode', min: 2, max: 2, timeout: '7', inputType: 'EnglishKeyboard' });
-      return sendYemot(res, await country(countryCode) + ' לחיפוש מדינה נוספת, הקלידו קוד בן שתי אותיות באנגלית וסיימו בסולמית.', { inputName: 'CountryCode', min: 2, max: 2, timeout: '7', inputType: 'EnglishKeyboard' });
+      if (!/^[a-z]{2}$/i.test(countryCode)) return sendYemot(res, 'קוד המדינה אינו תקין. הקלידו שתי אותיות באנגלית.', { inputName: 'CountryCode', min: 2, max: 2, timeout: '10', inputType: 'EnglishKeyboard' });
+      return sendYemot(res, await country(countryCode) + ' לחיפוש מדינה נוספת הקישו 1. לתפריט הראשי הקישו 0.', { inputName: 'CountryAction', min: 1, max: 1, timeout: '8' });
     }
+    if (countryAction === '1') return sendYemot(res, 'הקלידו קוד מדינה בן שתי אותיות באנגלית.', { inputName: 'CountryCode', min: 2, max: 2, timeout: '10', inputType: 'EnglishKeyboard' });
+    if (countryAction === '0' || numberAction === '0') return sendYemot(res, menu(), { inputName: 'wm_nav', min: 1, max: 1, timeout: '5' });
+
     if (num) {
-      if (!/^-?\d{1,9}$/.test(num)) return sendYemot(res, 'המספר אינו תקין. הקישו מספר שלם עד תשע ספרות.', { inputName: 'NumberInput', min: 1, max: 9, timeout: '7' });
-      return sendYemot(res, await numberFact(num) + ' לעובדה על מספר נוסף, הקישו מספר שלם.', { inputName: 'NumberInput', min: 1, max: 9, timeout: '7' });
+      if (!/^-?\d{1,9}$/.test(num)) return sendYemot(res, 'המספר אינו תקין. הקישו מספר שלם עד תשע ספרות.', { inputName: 'NumberInput', min: 1, max: 9, timeout: '8' });
+      return sendYemot(res, await numberFact(num) + ' לעובדה על מספר נוסף הקישו 1. לתפריט הראשי הקישו 0.', { inputName: 'NumberAction', min: 1, max: 1, timeout: '8' });
     }
-    const choice = val(url, ['wm_nav', 'Choice', 'ApiPhoneInput', 'Digits', 'val']).replace(/[^0-9]/g, '');
-    if (!choice) return sendYemot(res, menu(), { inputName: 'wm_nav', min: 1, max: 1, timeout: '3' });
-    if (choice === '1') return sendYemot(res, await launches() + ' להאזנה חוזרת, הקישו 1.', { inputName: 'wm_nav', min: 1, max: 1, timeout: '7' });
-    if (choice === '2') return sendYemot(res, 'הקלידו את שם הלוויין באנגלית באמצעות מקשי הטלפון. אפשר להחליף שפת מקלדת לפי האפשרויות במכשיר. לסיום הקישו סולמית.', { inputName: 'SatelliteName', min: 2, max: 30, timeout: '7', inputType: 'EnglishKeyboard' });
-    if (choice === '3') return sendYemot(res, 'הקלידו קוד מדינה בן שתי אותיות באנגלית. לדוגמה איי אל לישראל. לסיום הקישו סולמית.', { inputName: 'CountryCode', min: 2, max: 2, timeout: '7', inputType: 'EnglishKeyboard' });
-    if (choice === '4') return sendYemot(res, 'הקישו מספר שלם, עד תשע ספרות, לקבלת עובדה מעניינת.', { inputName: 'NumberInput', min: 1, max: 9, timeout: '7' });
-    if (choice === '5') return sendYemot(res, 'אפשרות מעברי הלוויינים עדיין אינה מחוברת למנוע חישוב מסלולים, ולכן לא ניתן למסור זמני מעבר מדויקים.', { inputName: 'wm_nav', min: 1, max: 1, timeout: '7' });
-    if (choice === '6') return sendYemot(res, await earthquakes() + ' למידע מעודכן נוסף, הקישו 6.', { inputName: 'wm_nav', min: 1, max: 1, timeout: '7' });
-    if (choice === '7') return sendYemot(res, await issPosition() + ' להאזנה חוזרת, הקישו 7.', { inputName: 'wm_nav', min: 1, max: 1, timeout: '7' });
-    if (choice === '8') return sendYemot(res, await globalFlights() + ' להאזנה חוזרת, הקישו 8.', { inputName: 'wm_nav', min: 1, max: 1, timeout: '7' });
-    if (choice === '9') return sendYemot(res, await worldPopulation() + ' להאזנה חוזרת, הקישו 9.', { inputName: 'wm_nav', min: 1, max: 1, timeout: '7' });
-    return sendYemot(res, 'הבחירה לא זוהתה. ' + menu(), { inputName: 'wm_nav', min: 1, max: 1, timeout: '3' });
+    if (numberAction === '1') return sendYemot(res, 'הקישו מספר שלם לקבלת עובדה מעניינת.', { inputName: 'NumberInput', min: 1, max: 9, timeout: '8' });
+
+    if (!choice) return sendYemot(res, menu(), { inputName: 'wm_nav', min: 1, max: 1, timeout: '5' });
+    if (choice === '1') return sendYemot(res, await launches() + ' לתפריט הראשי הקישו 0.', { inputName: 'LaunchAction', min: 1, max: 1, timeout: '8' });
+    if (choice === '2') return sendYemot(res, 'הקלידו שם לוויין באנגלית או מספר NORAD, וסיימו בסולמית.', { inputName: 'SatelliteName', min: 1, max: 40, timeout: '10', inputType: 'EnglishKeyboard' });
+    if (choice === '3') return sendYemot(res, 'הקלידו קוד מדינה בן שתי אותיות באנגלית, לדוגמה I L עבור ישראל.', { inputName: 'CountryCode', min: 2, max: 2, timeout: '10', inputType: 'EnglishKeyboard' });
+    if (choice === '4') return sendYemot(res, 'הקישו מספר שלם לקבלת עובדה מעניינת.', { inputName: 'NumberInput', min: 1, max: 9, timeout: '8' });
+    if (choice === '5') return sendYemot(res, 'מעברי לוויינים מעל ישראל עדיין אינם מחושבים. נדרש מנוע חישוב מסלולים ושמירת נתוני מסלול.', { inputName: 'wm_nav', min: 1, max: 1, timeout: '8' });
+    if (choice === '6') return sendYemot(res, await earthquakes() + ' לתפריט הראשי הקישו 0.', { inputName: 'EarthquakeAction', min: 1, max: 1, timeout: '8' });
+    if (choice === '7') return sendYemot(res, await issPosition() + ' לתפריט הראשי הקישו 0.', { inputName: 'ISSAction', min: 1, max: 1, timeout: '8' });
+    if (choice === '8') return sendYemot(res, await globalFlights() + ' לתפריט הראשי הקישו 0.', { inputName: 'FlightAction', min: 1, max: 1, timeout: '8' });
+    if (choice === '9') return sendYemot(res, await worldPopulation() + ' לתפריט הראשי הקישו 0.', { inputName: 'PopulationAction', min: 1, max: 1, timeout: '8' });
+    return sendYemot(res, 'הבחירה לא זוהתה. ' + menu(), { inputName: 'wm_nav', min: 1, max: 1, timeout: '5' });
   } catch (e) {
-    return sendYemot(res, 'לא ניתן לקבל כרגע את הנתונים מהשירות החיצוני. אפשר לנסות שוב מאוחר יותר. ' + menu(), { inputName: 'wm_nav', min: 1, max: 1, timeout: '5' });
+    const msg = String(e?.message || 'תקלה לא ידועה').replace(/[.=\r\n]/g, ' ').slice(0, 180);
+    return sendYemot(res, 'הפעולה נכשלה. הסיבה: ' + msg + '. לתפריט הראשי הקישו 0.', { inputName: 'ErrorAction', min: 1, max: 1, timeout: '8' });
   }
 }
