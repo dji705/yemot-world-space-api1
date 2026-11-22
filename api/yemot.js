@@ -22,7 +22,7 @@ function val(url, names) {
 function esc(v) { return String(v ?? '').replace(/[<>]/g, ' '); }
 function number(v) { return Number(v).toLocaleString('he-IL'); }
 function menu() {
-  return 'ברוכים הבאים למרכז מידע עולם וחלל. לשיאים עולמיים הקישו 1. לשערי מטבע חוץ הקישו 2. לנתוני אוכלוסיית העולם הקישו 3. לעובדה מעניינת על מספר הקישו 4. למידע על מעברי לוויינים הקישו 5. לרעידות אדמה בעולם הקישו 6. למיקום תחנת החלל הקישו 7. למידע מורחב על מדינות הקישו 8.';
+  return 'ברוכים הבאים למרכז מידע עולם וחלל. לשיאים עולמיים הקישו 1. לשיגורי חלל קרובים הקישו 2. למידע על מדינה הקישו 3. לעובדה מעניינת על מספר הקישו 4. למידע על מעברי לוויינים הקישו 5. לרעידות אדמה בעולם הקישו 6. למיקום תחנת החלל הקישו 7.';
 }
 function worldRecords() {
   const records = [
@@ -58,105 +58,17 @@ async function launches() {
   await storeSet('yemot-space:cache:launches', result, 1800);
   return result;
 }
-async function exchangeRates() {
-  const d = await json('https://api.frankfurter.app/latest?from=USD&to=ILS,EUR,GBP');
-  const rates = d.rates || {};
-  const parts = [
-    rates.ILS ? 'דולר אחד שווה ' + Number(rates.ILS).toFixed(2) + ' שקלים' : '',
-    rates.EUR ? 'דולר אחד שווה ' + Number(rates.EUR).toFixed(2) + ' אירו' : '',
-    rates.GBP ? 'דולר אחד שווה ' + Number(rates.GBP).toFixed(2) + ' לירות שטרלינג' : ''
-  ].filter(Boolean);
-  if (!parts.length) return 'שערי המטבע אינם זמינים כרגע.';
-  return 'שערי מטבע חוץ לפי שערי הייחוס האחרונים שפורסמו. ' + parts.join('. ') + '. התאריך ' + (d.date || 'לא צוין') + '.';
-}
-async function worldPopulation() {
-  const d = await json('https://api.worldbank.org/v2/country/WLD/indicator/SP.POP.TOTL?format=json&per_page=80');
-  const rows = Array.isArray(d?.[1]) ? d[1] : [];
-  const row = rows.find(x => x.value !== null && x.value !== undefined);
-  if (!row) return 'נתוני אוכלוסיית העולם אינם זמינים כרגע.';
-  return 'אוכלוסיית העולם מוערכת בכ ' + number(Math.round(row.value)) + ' בני אדם. שנת הנתון ' + row.date + '.';
-}
 async function country(code) {
   const normalized = String(code || '').replace(/\s+/g, '').toUpperCase();
   if (!/^[A-Z]{2}$/.test(normalized)) return 'קוד המדינה אינו תקין. יש להקליד שתי אותיות באנגלית.';
-
-  const base = 'https://api.worldbank.org/v2/country/' + encodeURIComponent(normalized);
-  const info = await json(base + '?format=json');
+  const info = await json('https://api.worldbank.org/v2/country/' + encodeURIComponent(normalized) + '?format=json');
   const countries = Array.isArray(info?.[1]) ? info[1] : [];
   const item = countries.find(x => String(x.iso2Code || '').toUpperCase() === normalized && x.region?.id !== 'NA');
   if (!item) return 'לא נמצאה מדינה בקוד שהקשתם.';
-
-  // Each indicator is fetched independently so one unavailable statistic
-  // cannot break the entire country-information menu.
-  const indicators = [
-    ['SP.POP.TOTL', 'אוכלוסייה', 0, ' תושבים'],
-    ['NY.GDP.MKTP.CD', 'תוצר מקומי גולמי', 0, ' דולר'],
-    ['NY.GDP.PCAP.CD', 'תוצר לנפש', 0, ' דולר לנפש'],
-    ['NY.GDP.MKTP.KD.ZG', 'צמיחה כלכלית', 2, ' אחוזים'],
-    ['SP.DYN.LE00.IN', 'תוחלת חיים', 1, ' שנים'],
-    ['SP.DYN.CBRT.IN', 'שיעור לידות', 1, ' לידות לאלף תושבים'],
-    ['SP.DYN.CDRT.IN', 'שיעור פטירות', 1, ' פטירות לאלף תושבים'],
-    ['SP.URB.TOTL.IN.ZS', 'אוכלוסייה עירונית', 1, ' אחוזים'],
-    ['IT.NET.USER.ZS', 'שימוש באינטרנט', 1, ' אחוזים'],
-    ['EG.ELC.ACCS.ZS', 'גישה לחשמל', 1, ' אחוזים'],
-    ['AG.LND.FRST.ZS', 'שטח מכוסה יערות', 1, ' אחוזים'],
-    ['AG.LND.AGRI.ZS', 'שטח חקלאי', 1, ' אחוזים'],
-    ['SL.UEM.TOTL.ZS', 'שיעור אבטלה', 1, ' אחוזים'],
-    ['FP.CPI.TOTL.ZG', 'אינפלציה', 1, ' אחוזים']
-  ];
-
-  const latestIndicator = async (id) => {
-    try {
-      const response = await json(base + '/indicator/' + id + '?format=json&per_page=80');
-      const rows = Array.isArray(response?.[1]) ? response[1] : [];
-      const row = rows.find(x => x.value !== null && x.value !== undefined);
-      return row || null;
-    } catch (_) {
-      return null;
-    }
-  };
-
-  const values = await Promise.all(indicators.map(async ([id]) => latestIndicator(id)));
-  const formatIndicator = (definition, row) => {
-    const [id, label, digits, unit] = definition;
-    if (!row) return label + ': אין נתון זמין כרגע.';
-    const value = Number(row.value).toLocaleString('he-IL', {
-      maximumFractionDigits: digits,
-      minimumFractionDigits: digits
-    });
-    return label + ': ' + value + unit + ' (נתוני ' + row.date + ').';
-  };
-
-  let extra = {};
-  try {
-    const response = await json('https://restcountries.com/v3.1/alpha/' + encodeURIComponent(normalized) + '?fields=capital,region,subregion,area,currencies,languages,timezones');
-    extra = Array.isArray(response) ? (response[0] || {}) : response;
-  } catch (_) {}
-
-  const capital = esc(item.capitalCity || extra.capital?.[0] || 'לא צוינה');
-  const region = esc(extra.region || item.region?.value || 'לא ידוע');
-  const subregion = esc(extra.subregion || 'לא צוין');
-  const area = extra.area == null ? 'אין נתון זמין' : number(Math.round(extra.area)) + ' קילומטרים רבועים';
-  const currencies = extra.currencies
-    ? Object.values(extra.currencies).map(x => x.name || x.symbol).filter(Boolean).join(', ')
-    : 'לא צוין';
-  const languages = extra.languages ? Object.values(extra.languages).join(', ') : 'לא צוינו';
-  const timezones = Array.isArray(extra.timezones) ? extra.timezones.slice(0, 5).join(', ') : 'לא צוינו';
-
-  const facts = [
-    'שם המדינה: ' + esc(item.name) + '.',
-    'עיר הבירה: ' + capital + '.',
-    'האזור בעולם: ' + region + '.',
-    'תת אזור: ' + subregion + '.',
-    'שטח המדינה: ' + area + '.',
-    ...indicators.map((definition, index) => formatIndicator(definition, values[index])),
-    'המטבע: ' + esc(currencies) + '.',
-    'השפות: ' + esc(languages) + '.',
-    'אזורי זמן: ' + esc(timezones) + '.'
-  ];
-
-  return 'מידע מורחב על ' + esc(item.name) + '. ' +
-    facts.map((fact, index) => 'פרט מספר ' + (index + 1) + '. ' + fact).join(' ');
+  const d = await json('https://api.worldbank.org/v2/country/' + encodeURIComponent(normalized) + '/indicator/SP.POP.TOTL?format=json&per_page=80');
+  const rows = Array.isArray(d?.[1]) ? d[1] : [];
+  const row = rows.find(x => String(x.country?.id || '').toUpperCase() === normalized && x.value != null);
+  return `${esc(item.name)}. אוכלוסייה לפי הנתון האחרון במאגר: ${row ? number(row.value) : 'אין נתון זמין'}. שנת הנתון: ${row?.date || 'לא ידועה'}. אזור בעולם: ${esc(item.region?.value || 'לא ידוע')}.`;
 }
 
 async function earthquakes() {
@@ -231,13 +143,12 @@ export default async function handler(req, res) {
 
     if (!choice) return sendYemot(res, menu(), { inputName: 'wm_nav', min: 1, max: 1, timeout: '5' });
     if (choice === '1') return sendYemot(res, worldRecords() + ' לתפריט הראשי הקישו 0.', { inputName: 'WorldRecordsAction', min: 1, max: 1, timeout: '8' });
-    if (choice === '2') return sendYemot(res, await exchangeRates() + ' לתפריט הראשי הקישו 0.', { inputName: 'ExchangeAction', min: 1, max: 1, timeout: '8' });
-    if (choice === '3') return sendYemot(res, await worldPopulation() + ' לתפריט הראשי הקישו 0.', { inputName: 'PopulationAction', min: 1, max: 1, timeout: '8' });
+    if (choice === '2') return sendYemot(res, await launches() + ' לתפריט הראשי הקישו 0.', { inputName: 'LaunchAction', min: 1, max: 1, timeout: '8' });
+    if (choice === '3') return sendYemot(res, 'הקלידו קוד מדינה בן שתי אותיות באנגלית, לדוגמה I L עבור ישראל.', { inputName: 'CountryCode', min: 2, max: 2, timeout: '10', inputType: 'EnglishKeyboard' });
     if (choice === '4') return sendYemot(res, 'הקישו מספר שלם לקבלת עובדה מעניינת.', { inputName: 'NumberInput', min: 1, max: 9, timeout: '8' });
     if (choice === '5') return sendYemot(res, 'מעברי לוויינים מעל ישראל אינם זמינים כרגע.', { inputName: 'wm_nav', min: 1, max: 1, timeout: '8' });
     if (choice === '6') return sendYemot(res, await earthquakes() + ' לתפריט הראשי הקישו 0.', { inputName: 'EarthquakeAction', min: 1, max: 1, timeout: '8' });
     if (choice === '7') return sendYemot(res, await issPosition() + ' לתפריט הראשי הקישו 0.', { inputName: 'ISSAction', min: 1, max: 1, timeout: '8' });
-    if (choice === '8') return sendYemot(res, 'הקלידו קוד מדינה בן שתי אותיות באנגלית, לדוגמה I L עבור ישראל.', { inputName: 'CountryCode', min: 2, max: 2, timeout: '10', inputType: 'EnglishKeyboard' });
     return sendYemot(res, 'הבחירה לא זוהתה. ' + menu(), { inputName: 'wm_nav', min: 1, max: 1, timeout: '5' });
   } catch (e) {
     const msg = String(e?.message || 'תקלה לא ידועה').replace(/[.=\r\n]/g, ' ').slice(0, 180);
