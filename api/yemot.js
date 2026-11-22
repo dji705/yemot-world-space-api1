@@ -6,6 +6,7 @@ function sendYemot(res, text, options = {}) {
   res.setHeader('Cache-Control', 'no-store');
   const safe = String(text)
     .replace(/[\r\n]+/g, ' ')
+    .replace(/(\d)\.(\d)/g, '$1 נקודה $2')
     .replace(/[.=]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -39,6 +40,8 @@ async function launches() {
     const date = x.net ? new Intl.DateTimeFormat('he-IL', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Jerusalem' }).format(new Date(x.net)) : 'מועד לא ידוע';
     return `שיגור מספר ${i + 1}. ${esc(x.name)}. מועד ${date}. אתר השיגור: ${esc(x.pad?.location?.name || 'לא צוין')}.`;
   }).join(' ');
+  await storeSet('yemot-space:cache:launches', result, 1800);
+  return result;
 }
 async function satellite(q) {
   const d = await json('https://celestrak.org/NORAD/elements/gp.php?NAME=' + encodeURIComponent(q) + '&FORMAT=JSON');
