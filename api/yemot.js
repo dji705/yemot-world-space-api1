@@ -70,19 +70,33 @@ async function issPosition() {
   const d = await json('https://api.wheretheiss.at/v1/satellites/25544');
   return `תחנת החלל הבינלאומית נמצאת כעת בקו רוחב ${Number(d.latitude).toFixed(2)}, קו אורך ${Number(d.longitude).toFixed(2)}. גובה ${Math.round(d.altitude)} קילומטרים. מהירות ${Math.round(d.velocity)} קילומטרים בשעה. הנתונים מתעדכנים בזמן אמת בקירוב.`;
 }
+async function jsonWithHeaders(url, headers) {
+  const r = await fetch(url, { headers: { 'User-Agent': 'YemotWorldSpaceAPI/1.0', ...headers } });
+  if (!r.ok) throw new Error('שירות הנתונים החזיר שגיאה ' + r.status);
+  return r.json();
+}
 async function globalFlights() {
-  const d = await json('https://opensky-network.org/api/states/all');
+  const clientId = process.env.OPENSKY_CLIENT_ID;
+  const clientSecret = process.env.OPENSKY_CLIENT_SECRET;
+  if (!clientId || !clientSecret) throw new Error('מעקב הטיסות אינו מחובר עדיין. חסרים פרטי API של OpenSky בשרת.');
+  const tokenRes = await fetch('https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'client_credentials', client_id: clientId, client_secret: clientSecret })
+  });
+  if (!tokenRes.ok) throw new Error('OpenSky לא אישר גישה. בדקו את פרטי ה-API.');
+  const token = await tokenRes.json();
+  const d = await jsonWithHeaders('https://opensky-network.org/api/states/all', { Authorization: 'Bearer ' + token.access_token });
   const states = Array.isArray(d.states) ? d.states : [];
-  if (!states.length) return 'לא התקבלו כרגע נתוני מטוסים ממאגר המעקב העולמי.';
-  const airborne = states.filter(s => s && s[5] !== null && s[6] !== null && s[8] === false);
+  const airborne = states.filter(s => s && s[5] != null && s[6] != null && s[8] === false);
   const sample = airborne.slice(0, 5).map((s, i) => {
     const call = String(s[1] || '').trim() || 'מספר זיהוי לא זמין';
     const country = s[2] || 'מדינה לא ידועה';
     const alt = s[7] == null ? 'גובה לא ידוע' : Math.round(s[7]) + ' מטרים';
     const speed = s[9] == null ? 'מהירות לא ידועה' : Math.round(s[9] * 3.6) + ' קילומטרים בשעה';
-    return `מטוס ${i + 1}. ${esc(call)}. מדינה: ${esc(country)}. גובה: ${alt}. מהירות: ${speed}.`;
+    return `מטוס ${i+1}. ${esc(call)}. מדינה ${esc(country)}. גובה ${alt}. מהירות ${speed}.`;
   });
-  return `במאגר התקבלו ${number(states.length)} כלי טיס ברחבי העולם, מתוכם ${number(airborne.length)} באוויר עם מיקום ידוע. ` + (sample.length ? sample.join(' ') : 'אין כרגע דוגמאות זמינות.');
+  return `במאגר התקבלו ${number(states.length)} כלי טיס, מתוכם ${number(airborne.length)} באוויר עם מיקום ידוע. ` + (sample.length ? sample.join(' ') : 'אין כרגע דוגמאות זמינות.');
 }
 async function worldPopulation() {
   const d = await json('https://api.worldbank.org/v2/country/WLD/indicator/SP.POP.TOTL?format=json&per_page=1');
