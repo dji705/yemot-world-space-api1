@@ -152,17 +152,84 @@ async function countryRecords(code, kind = 'place') {
   if (!/^[A-Z]{2}$/.test(normalized)) return 'קוד המדינה אינו תקין. הקלידו שתי אותיות באנגלית.';
   const info = await json('https://api.worldbank.org/v2/country/' + encodeURIComponent(normalized) + '?format=json');
   const rows = Array.isArray(info?.[1]) ? info[1] : [];
-  const item = rows.find(x => String(x.iso2Code || '').toUpperCase() === normalized && x.region?.id !== 'NA');
-  if (!item) return 'לא נמצאה מדינה בקוד שהקשתם.';
-  // Guinness World Records has no public, unrestricted records-search API.
-  // Never label general geographic facts as Guinness records.
-  const countryName = esc(item.name);
-  const category = kind === 'people'
-    ? 'שיאי גינס של אנשים שמוצאם במדינה'
-    : 'שיאי גינס שנקבעו בתחומי המדינה';
-  return category + ' עבור ' + countryName + '. כרגע אין חיבור למאגר רשמי שמאפשר לאמת שיאי גינס למדינה זו. אפשר להוסיף מאגר מקורות מאומת, אך לא נציג נתונים לא מאומתים כאילו הם שיאי גינס.';
-}
+  const countryItem = rows.find(x => String(x.iso2Code || '').toUpperCase() === normalized && x.region?.id !== 'NA');
+  if (!countryItem) return 'לא נמצאה מדינה בקוד שהקשתם.';
+  const countryName = esc(countryItem.name);
 
+  const query = kind === 'people'
+    ? `SELECT DISTINCT ?person ?personLabel ?occupationLabel ?awardLabel ?description WHERE {
+        ?person wdt:P27 wd:${normalized === 'IL' ? 'Q801' : 'Q' + '0'} .
+        OPTIONAL { ?person wdt:P106 ?occupation. }
+        OPTIONAL { ?person wdt:P166 ?award. }
+        OPTIONAL { ?person schema:description ?description FILTER(LANG(?description)="he" || LANG(?description)="en"). }
+        SERVICE wikibase:label { bd:serviceParam wikibase:language "he,en". }
+      } LIMIT 25`
+    : `SELECT DISTINCT ?item ?itemLabel ?description ?inception ?point WHERE {
+        ?item wdt:P17 ?country.
+        ?country wdt:P297 "${normalized}".
+        OPTIONAL { ?item schema:description ?description FILTER(LANG(?description)="he" || LANG(?description)="en"). }
+        OPTIONAL { ?item wdt:P571 ?inception. }
+        OPTIONAL { ?item wdt:P625 ?point. }
+        SERVICE wikibase:label { bd:serviceParam wikibase:language "he,en". }
+        FILTER(BOUND(?description) || BOUND(?inception) || BOUND(?point))
+      } LIMIT 35`;
+
+  // Query by country entity using ISO alpha-2 country code; resolve country QID first.
+  const countrySearch = 'SELECT ?country WHERE { ?country wdt:P297 "' + normalized + '". } LIMIT 1';
+  const sparql = async (q) => {
+    const url = 'https://query.wikidata.org/sparql?format=json&query=' + encodeURIComponent(q);
+    return json(url);
+  };
+  let countryQid = '';
+  try {
+    const c = await sparql(countrySearch);
+    const uri = c?.results?.bindings?.[0]?.country?.value || '';
+    countryQid = uri.split('/').pop();
+  } catch (_) {}
+  if (!countryQid) return 'המדינה נמצאה, אך מאגר ההישגים אינו זמין כרגע.';
+
+  const actualQuery = kind === 'people'
+    ? `SELECT DISTINCT ?person ?personLabel ?description ?occupationLabel ?awardLabel WHERE {
+        ?person wdt:P27 wd:${countryQid}.
+        OPTIONAL { ?person schema:description ?description FILTER(LANG(?description)="he" || LANG(?description)="en"). }
+        OPTIONAL { ?person wdt:P106 ?occupation. }
+        OPTIONAL { ?person wdt:P166 ?award. }
+        SERVICE wikibase:label { bd:serviceParam wikibase:language "he,en". }
+      } LIMIT 30`
+    : `SELECT DISTINCT ?item ?itemLabel ?description ?inception WHERE {
+        ?item wdt:P17 wd:${countryQid}.
+        OPTIONAL { ?item schema:description ?description FILTER(LANG(?description)="he" || LANG(?description)="en"). }
+        OPTIONAL { ?item wdt:P571 ?inception. }
+        SERVICE wikibase:label { bd:serviceParam wikibase:language "he,en". }
+      } LIMIT 35`;
+  let bindings = [];
+  try {
+    const result = await sparql(actualQuery);
+    bindings = result?.results?.bindings || [];
+  } catch (_) {
+    return 'מאגר המידע אינו זמין כרגע. אפשר לנסות שוב מאוחר יותר.';
+  }
+
+  const seen = new Set();
+  const entries = [];
+  for (const b of bindings) {
+    const uri = b.person?.value || b.item?.value || '';
+    const label = b.personLabel?.value || b.itemLabel?.value || '';
+    if (!label || seen.has(uri)) continue;
+    seen.add(uri);
+    const desc = b.description?.value || b.occupationLabel?.value || b.awardLabel?.value || '';
+    const year = b.inception?.value ? new Date(b.inception.value).getUTCFullYear() : '';
+    entries.push({ label: esc(label), desc: esc(desc), year });
+  }
+  if (!entries.length) return 'לא נמצאו כרגע רשומות מתאימות במאגר עבור ' + countryName + '.';
+  const heading = kind === 'people'
+    ? 'אנשים והישגים הקשורים ל ' + countryName
+    : 'אתרים, מבנים ומקומות בולטים ב ' + countryName;
+  const lines = entries.slice(0, 15).map((x, i) =>
+    'פריט ' + (i + 1) + '. ' + x.label + (x.desc ? '. מידע: ' + x.desc : '') + (x.year ? '. שנת התחלה: ' + x.year : '') + '.'
+  );
+  return heading + '. נמצאו ' + entries.length + ' רשומות ראשוניות במאגר ויקידאטה. שימו לב, אלו רשומות מידע ולא בהכרח שיאי גינס מאומתים. ' + lines.join(' ');
+}
 
 function countryFromSpeech(text) {
   const t = String(text || '').trim().toLowerCase().replace(/[.,!?]/g, ' ');
@@ -317,7 +384,8 @@ export default async function handler(req, res) {
   const choice = val(url, ['wm_nav', 'Choice', 'ApiPhoneInput', 'Digits', 'val']).replace(/[^0-9]/g, '');
 
   try {
-    if (recordsKind === '1' || recordsKind === '2') return sendYemot(res, 'אמרו את שם המדינה אחרי הצליל, או הקישו את קוד המדינה באנגלית.', { inputName: 'SpeechRecord', min: 1, max: 1, timeout: '8', inputType: 'record' });
+    if (recordsKind === '1' || recordsKind === '2') return sendYemot(res, 'אמרו את שם המדינה אחרי הצליל. לזיהוי באמצעות הקלדה, הקישו 0.', { inputName: 'SpeechRecord', min: 1, max: 1, timeout: '8', inputType: 'record' });
+    if (speechRecord === '0') return sendYemot(res, 'הקלידו קוד מדינה בן שתי אותיות באנגלית, לדוגמה I L.', { inputName: 'RecordsCountryCode', min: 2, max: 2, timeout: '10', inputType: 'EnglishKeyboard' });
     if (speechRecord) {
       const transcript = await transcribeCountry(speechRecord);
       const detected = countryFromSpeech(transcript);
@@ -327,7 +395,7 @@ export default async function handler(req, res) {
     if (recordsCountryCode) {
       const cleaned = recordsCountryCode.replace(/\\s+/g, '').toUpperCase();
       if (!/^[A-Z]{2}$/.test(cleaned)) return sendYemot(res, 'קוד המדינה אינו תקין. הקלידו שתי אותיות באנגלית.', { inputName: 'RecordsCountryCode', min: 2, max: 2, timeout: '10', inputType: 'EnglishKeyboard' });
-      return sendYemot(res, await countryRecords(cleaned) + ' לחיפוש מדינה נוספת הקישו 1. לתפריט הראשי הקישו 0.', { inputName: 'RecordsAction', min: 1, max: 1, timeout: '8' });
+      return sendYemot(res, await countryRecords(cleaned, recordsKind === '2' ? 'people' : 'place') + ' לחיפוש מדינה נוספת הקישו 1. לתפריט הראשי הקישו 0.', { inputName: 'RecordsAction', min: 1, max: 1, timeout: '8' });
     }
     if (recordsAction === '1') return sendYemot(res, 'אמרו את שם המדינה אחרי הצליל, או הקישו קוד מדינה בן שתי אותיות באנגלית.', { inputName: 'SpeechRecord', min: 1, max: 1, timeout: '8', inputType: 'record' });
     if (recordsAction === '0') return sendYemot(res, menu(), { inputName: 'wm_nav', min: 1, max: 1, timeout: '5' });
