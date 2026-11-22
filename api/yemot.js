@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 function sendYemot(res, text, options = {}) {
   const { inputName = 'wm_nav', min = 1, max = 1, timeout = '5', inputType = 'Digits' } = options;
   res.status(200);
@@ -134,7 +135,7 @@ async function storeSet(key, value, ttl = 600) {
 function sessionKey(url) {
   const phone = val(url, ['ApiPhone']) || 'anonymous';
   const did = val(url, ['ApiDID', 'ApiRealDID']) || 'default';
-  return 'yemot-space:' + encodeURIComponent(phone + ':' + did);
+  return 'yemot-space:' + createHash('sha256').update(phone + ':' + did).digest('hex');
 }
 async function satelliteSearch(q) {
   const cacheKey = 'yemot-space:cache:sat:' + encodeURIComponent(q.toLowerCase());
