@@ -246,14 +246,14 @@ export default async function handler(req, res) {
       const transcript = await transcribeCountry(speechRecord);
       const detected = countryFromSpeech(transcript);
       if (!detected) return sendYemot(res, 'לא זיהיתי מדינה מתוך מה שאמרתם. אפשר לנסות שוב או להקליד קוד מדינה באנגלית.', { inputName: 'RecordsCountryCode', min: 2, max: 2, timeout: '10', inputType: 'EnglishKeyboard' });
-      return sendYemot(res, 'זיהיתי את המדינה ' + transcript + '. לחיפוש שיאים הקישו 1. לבחירת מדינה אחרת הקישו 2.', { inputName: 'RecordsAction', min: 1, max: 1, timeout: '8' });
+      return sendYemot(res, 'זיהיתי את המדינה ' + transcript + '. ' + await countryRecords(detected, recordsKind === '2' ? 'people' : 'place') + ' לחיפוש מדינה נוספת הקישו 1. לתפריט הראשי הקישו 0.', { inputName: 'RecordsAction', min: 1, max: 1, timeout: '8' });
     }
     if (recordsCountryCode) {
       const cleaned = recordsCountryCode.replace(/\\s+/g, '').toUpperCase();
       if (!/^[A-Z]{2}$/.test(cleaned)) return sendYemot(res, 'קוד המדינה אינו תקין. הקלידו שתי אותיות באנגלית.', { inputName: 'RecordsCountryCode', min: 2, max: 2, timeout: '10', inputType: 'EnglishKeyboard' });
       return sendYemot(res, await countryRecords(cleaned) + ' לחיפוש מדינה נוספת הקישו 1. לתפריט הראשי הקישו 0.', { inputName: 'RecordsAction', min: 1, max: 1, timeout: '8' });
     }
-    if (recordsAction === '1') return sendYemot(res, 'הקלידו קוד מדינה בן שתי אותיות באנגלית, לדוגמה I L עבור ישראל.', { inputName: 'RecordsCountryCode', min: 2, max: 2, timeout: '10', inputType: 'EnglishKeyboard' });
+    if (recordsAction === '1') return sendYemot(res, 'אמרו את שם המדינה אחרי הצליל, או הקישו קוד מדינה בן שתי אותיות באנגלית.', { inputName: 'SpeechRecord', min: 1, max: 1, timeout: '8', inputType: 'record' });
     if (recordsAction === '0') return sendYemot(res, menu(), { inputName: 'wm_nav', min: 1, max: 1, timeout: '5' });
 
     if (countryCode) {
