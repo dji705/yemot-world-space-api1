@@ -22,7 +22,7 @@ function val(url, names) {
 function esc(v) { return String(v ?? '').replace(/[<>]/g, ' '); }
 function number(v) { return Number(v).toLocaleString('he-IL'); }
 function menu() {
-  return 'ברוכים הבאים למרכז מידע עולם וחלל. לשיאים עולמיים הקישו 1. לשיגורי חלל קרובים הקישו 2. למידע על מדינה הקישו 3. לעובדה מעניינת על מספר הקישו 4. למידע על מעברי לוויינים הקישו 5. לרעידות אדמה בעולם הקישו 6. למיקום תחנת החלל הקישו 7. לחיפוש שיאים בולטים לפי מדינה הקישו 9.';
+  return 'ברוכים הבאים למרכז מידע עולם וחלל. לשיאים עולמיים הקישו 1. לשיגורי חלל קרובים הקישו 2. למידע על מדינה הקישו 3. לעובדה מעניינת על מספר הקישו 4. למידע על מעברי לוויינים הקישו 5. לרעידות אדמה בעולם הקישו 6. למיקום תחנת החלל הקישו 7. לחיפוש שיאי גינס לפי מדינה הקישו 8.';
 }
 function worldRecords() {
   const records = [
@@ -71,35 +71,113 @@ async function country(code) {
   return `${esc(item.name)}. אוכלוסייה לפי הנתון האחרון במאגר: ${row ? number(row.value) : 'אין נתון זמין'}. שנת הנתון: ${row?.date || 'לא ידועה'}. אזור בעולם: ${esc(item.region?.value || 'לא ידוע')}.`;
 }
 
-async function countryRecords(code) {
+async function countryRecords(code, kind = 'place') {
   const normalized = String(code || '').replace(/\\s+/g, '').toUpperCase();
   if (!/^[A-Z]{2}$/.test(normalized)) return 'קוד המדינה אינו תקין. הקלידו שתי אותיות באנגלית.';
-  const base = 'https://api.worldbank.org/v2/country/' + encodeURIComponent(normalized);
-  const info = await json(base + '?format=json');
+  const info = await json('https://api.worldbank.org/v2/country/' + encodeURIComponent(normalized) + '?format=json');
   const rows = Array.isArray(info?.[1]) ? info[1] : [];
   const item = rows.find(x => String(x.iso2Code || '').toUpperCase() === normalized && x.region?.id !== 'NA');
   if (!item) return 'לא נמצאה מדינה בקוד שהקשתם.';
-  const [popData, areaData] = await Promise.all([
-    json(base + '/indicator/SP.POP.TOTL?format=json&per_page=80'),
-    json(base + '/indicator/AG.LND.TOTL.K2?format=json&per_page=80')
-  ]);
-  const popRows = Array.isArray(popData?.[1]) ? popData[1] : [];
-  const areaRows = Array.isArray(areaData?.[1]) ? areaData[1] : [];
-  const pop = popRows.find(x => x.value != null);
-  const area = areaRows.find(x => x.value != null);
-  let peakText = 'הנקודה הגבוהה במדינה לא נמצאה במאגר';
-  try {
-    const sparql = 'SELECT ?peakLabel ?elevation WHERE { ?country wdt:P297 "' + normalized + '". OPTIONAL { ?country wdt:P610 ?peak. ?peak rdfs:label ?peakLabel FILTER(LANG(?peakLabel)="he" || LANG(?peakLabel)="en"). OPTIONAL { ?peak wdt:P2044 ?elevation. } } } LIMIT 1';
-    const url = 'https://query.wikidata.org/sparql?format=json&query=' + encodeURIComponent(sparql);
-    const wd = await json(url);
-    const binding = wd?.results?.bindings?.[0];
-    if (binding?.peakLabel?.value) {
-      const elevation = binding.elevation?.value ? Math.round(Number(binding.elevation.value)) + ' מטרים' : '';
-      peakText = 'הנקודה הגבוהה במדינה היא ' + esc(binding.peakLabel.value) + (elevation ? ', בגובה ' + elevation : '');
-    }
-  } catch (_) {}
-  const capital = item.capitalCity && item.capitalCity !== '' ? item.capitalCity : 'לא צוינה';
-  return 'שיאים ונתונים בולטים במדינת ' + esc(item.name) + '. עיר בירה: ' + esc(capital) + '. אוכלוסייה: ' + (pop ? number(pop.value) + ' לפי שנת ' + pop.date : 'אין נתון זמין') + '. שטח יבשתי: ' + (area ? number(Math.round(area.value)) + ' קילומטרים רבועים' : 'אין נתון זמין') + '. ' + peakText + '.';
+  // Guinness World Records has no public, unrestricted records-search API.
+  // Never label general geographic facts as Guinness records.
+  const countryName = esc(item.name);
+  const category = kind === 'people'
+    ? 'שיאי גינס של אנשים שמוצאם במדינה'
+    : 'שיאי גינס שנקבעו בתחומי המדינה';
+  return category + ' עבור ' + countryName + '. כרגע אין חיבור למאגר רשמי שמאפשר לאמת שיאי גינס למדינה זו. אפשר להוסיף מאגר מקורות מאומת, אך לא נציג נתונים לא מאומתים כאילו הם שיאי גינס.';
+}
+
+
+function countryFromSpeech(text) {
+  const t = String(text || '').trim().toLowerCase().replace(/[.,!?]/g, ' ');
+  const aliases = {
+    'ישראל':'IL','israel':'IL','ארצות הברית':'US','ארצות הברית של אמריקה':'US','usa':'US','united states':'US',
+    'בריטניה':'GB','אנגליה':'GB','united kingdom':'GB','uk':'GB','צרפת':'FR','france':'FR',
+    'גרמניה':'DE','germany':'DE','איטליה':'IT','italy':'IT','ספרד':'ES','spain':'ES',
+    'רוסיה':'RU','russia':'RU','אוקראינה':'UA','ukraine':'UA','קנדה':'CA','canada':'CA',
+    'אוסטרליה':'AU','australia':'AU','יפן':'JP','japan':'JP','סין':'CN','china':'CN',
+    'הודו':'IN','india':'IN','ברזיל':'BR','brazil':'BR','מקסיקו':'MX','mexico':'MX',
+    'שוויץ':'CH','שווייץ':'CH','switzerland':'CH','אוסטריה':'AT','austria':'AT',
+    'יוון':'GR','greece':'GR','פולין':'PL','poland':'PL','הולנד':'NL','netherlands':'NL',
+    'בלגיה':'BE','belgium':'BE','טורקיה':'TR','turkey':'TR','מצרים':'EG','egypt':'EG',
+    'מרוקו':'MA','morocco':'MA','דרום אפריקה':'ZA','south africa':'ZA','איחוד האמירויות':'AE',
+    'תאילנד':'TH','thailand':'TH','גאורגיה':'GE','גרוזיה':'GE','georgia':'GE','בולגריה':'BG','bulgaria':'BG'
+  };
+  return aliases[t] || '';
+}
+async function downloadYemotRecording(path) {
+  const token = process.env.YEMOT_TOKEN;
+  if (!token) throw new Error('חסר YEMOT_TOKEN בהגדרות Vercel');
+  const cleanPath = String(path || '').trim();
+  if (!cleanPath || cleanPath.length > 300 || /https?:|\.\./i.test(cleanPath)) throw new Error('נתיב ההקלטה אינו תקין');
+  const endpoint = 'https://www.call2all.co.il/ym/api/DownloadFile?token=' + encodeURIComponent(token) + '&path=' + encodeURIComponent(cleanPath);
+  const response = await fetch(endpoint);
+  if (!response.ok) throw new Error('לא ניתן להוריד את ההקלטה מימות המשיח');
+  const bytes = await response.arrayBuffer();
+  if (!bytes.byteLength || bytes.byteLength > 12 * 1024 * 1024) throw new Error('גודל ההקלטה אינו תקין');
+  return bytes;
+}
+async function transcribeWithGroq(audio) {
+  const key = process.env.GROQ_API_KEY;
+  if (!key) throw new Error('skip');
+  const form = new FormData();
+  form.append('file', new Blob([audio], { type: 'audio/wav' }), 'country.wav');
+  form.append('model', 'whisper-large-v3-turbo');
+  form.append('language', 'he');
+  form.append('response_format', 'json');
+  const r = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+    method: 'POST', headers: { Authorization: 'Bearer ' + key }, body: form
+  });
+  if (!r.ok) throw new Error('Groq ' + r.status);
+  const d = await r.json();
+  if (!d.text) throw new Error('Groq returned empty transcript');
+  return d.text;
+}
+async function transcribeWithDeepgram(audio) {
+  const key = process.env.DEEPGRAM_API_KEY;
+  if (!key) throw new Error('skip');
+  const r = await fetch('https://api.deepgram.com/v1/listen?model=nova-3&language=he&smart_format=true', {
+    method: 'POST', headers: { Authorization: 'Token ' + key, 'Content-Type': 'audio/wav' }, body: audio
+  });
+  if (!r.ok) throw new Error('Deepgram ' + r.status);
+  const d = await r.json();
+  const transcript = d.results?.channels?.[0]?.alternatives?.[0]?.transcript;
+  if (!transcript) throw new Error('Deepgram returned empty transcript');
+  return transcript;
+}
+async function transcribeWithAssemblyAI(audio) {
+  const key = process.env.ASSEMBLYAI_API_KEY;
+  if (!key) throw new Error('skip');
+  const upload = await fetch('https://api.assemblyai.com/v2/upload', {
+    method: 'POST', headers: { authorization: key, 'content-type': 'application/octet-stream' }, body: audio
+  });
+  if (!upload.ok) throw new Error('AssemblyAI upload ' + upload.status);
+  const up = await upload.json();
+  const create = await fetch('https://api.assemblyai.com/v2/transcript', {
+    method: 'POST', headers: { authorization: key, 'content-type': 'application/json' },
+    body: JSON.stringify({ audio_url: up.upload_url, language_code: 'he' })
+  });
+  if (!create.ok) throw new Error('AssemblyAI ' + create.status);
+  const job = await create.json();
+  for (let i = 0; i < 12; i++) {
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    const poll = await fetch('https://api.assemblyai.com/v2/transcript/' + encodeURIComponent(job.id), { headers: { authorization: key } });
+    if (!poll.ok) throw new Error('AssemblyAI polling ' + poll.status);
+    const result = await poll.json();
+    if (result.status === 'completed' && result.text) return result.text;
+    if (result.status === 'error') throw new Error('AssemblyAI transcription failed');
+  }
+  throw new Error('AssemblyAI transcription timeout');
+}
+async function transcribeCountry(audioPath) {
+  const audio = await downloadYemotRecording(audioPath);
+  const providers = [transcribeWithGroq, transcribeWithDeepgram, transcribeWithAssemblyAI];
+  const errors = [];
+  for (const provider of providers) {
+    try { return await provider(audio); }
+    catch (e) { if (e.message !== 'skip') errors.push(e.message); }
+  }
+  throw new Error(errors.length ? 'כל שירותי זיהוי הדיבור נכשלו: ' + errors.join('; ') : 'לא הוגדרו מפתחות API לשירותי זיהוי הדיבור');
 }
 
 async function earthquakes() {
@@ -154,16 +232,25 @@ export default async function handler(req, res) {
   const key = sessionKey(url);
   const countryCode = val(url, ['CountryCode']);
   const recordsCountryCode = val(url, ['RecordsCountryCode']);
+  const speechRecord = val(url, ['SpeechRecord', 'CountryAudio', 'record', 'RecordPath']);
   const recordsAction = val(url, ['RecordsAction']);
+  const recordsKind = val(url, ['RecordsKind']);
   const num = val(url, ['NumberInput']);
   const countryAction = val(url, ['CountryAction']);
   const numberAction = val(url, ['NumberAction']);
   const choice = val(url, ['wm_nav', 'Choice', 'ApiPhoneInput', 'Digits', 'val']).replace(/[^0-9]/g, '');
 
   try {
+    if (recordsKind === '1' || recordsKind === '2') return sendYemot(res, 'אמרו את שם המדינה אחרי הצליל, או הקישו את קוד המדינה באנגלית.', { inputName: 'SpeechRecord', min: 1, max: 1, timeout: '8', inputType: 'record' });
+    if (speechRecord) {
+      const transcript = await transcribeCountry(speechRecord);
+      const detected = countryFromSpeech(transcript);
+      if (!detected) return sendYemot(res, 'לא זיהיתי מדינה מתוך מה שאמרתם. אפשר לנסות שוב או להקליד קוד מדינה באנגלית.', { inputName: 'RecordsCountryCode', min: 2, max: 2, timeout: '10', inputType: 'EnglishKeyboard' });
+      return sendYemot(res, 'זיהיתי את המדינה ' + transcript + '. לחיפוש שיאים הקישו 1. לבחירת מדינה אחרת הקישו 2.', { inputName: 'RecordsAction', min: 1, max: 1, timeout: '8' });
+    }
     if (recordsCountryCode) {
-      const cleaned = recordsCountryCode.replace(/\\s+/g, '');
-      if (!/^[a-z]{2}$/i.test(cleaned)) return sendYemot(res, 'קוד המדינה אינו תקין. הקלידו שתי אותיות באנגלית.', { inputName: 'RecordsCountryCode', min: 2, max: 2, timeout: '10', inputType: 'EnglishKeyboard' });
+      const cleaned = recordsCountryCode.replace(/\\s+/g, '').toUpperCase();
+      if (!/^[A-Z]{2}$/.test(cleaned)) return sendYemot(res, 'קוד המדינה אינו תקין. הקלידו שתי אותיות באנגלית.', { inputName: 'RecordsCountryCode', min: 2, max: 2, timeout: '10', inputType: 'EnglishKeyboard' });
       return sendYemot(res, await countryRecords(cleaned) + ' לחיפוש מדינה נוספת הקישו 1. לתפריט הראשי הקישו 0.', { inputName: 'RecordsAction', min: 1, max: 1, timeout: '8' });
     }
     if (recordsAction === '1') return sendYemot(res, 'הקלידו קוד מדינה בן שתי אותיות באנגלית, לדוגמה I L עבור ישראל.', { inputName: 'RecordsCountryCode', min: 2, max: 2, timeout: '10', inputType: 'EnglishKeyboard' });
@@ -190,7 +277,7 @@ export default async function handler(req, res) {
     if (choice === '5') return sendYemot(res, 'מעברי לוויינים מעל ישראל אינם זמינים כרגע.', { inputName: 'wm_nav', min: 1, max: 1, timeout: '8' });
     if (choice === '6') return sendYemot(res, await earthquakes() + ' לתפריט הראשי הקישו 0.', { inputName: 'EarthquakeAction', min: 1, max: 1, timeout: '8' });
     if (choice === '7') return sendYemot(res, await issPosition() + ' לתפריט הראשי הקישו 0.', { inputName: 'ISSAction', min: 1, max: 1, timeout: '8' });
-    if (choice === '9') return sendYemot(res, 'הקלידו קוד מדינה בן שתי אותיות באנגלית, לדוגמה I L עבור ישראל.', { inputName: 'RecordsCountryCode', min: 2, max: 2, timeout: '10', inputType: 'EnglishKeyboard' });
+    if (choice === '8') return sendYemot(res, 'לחיפוש שיאי גינס שנקבעו בתוך המדינה הקישו 1. לשיאי גינס של אנשים מאותה מדינה הקישו 2.', { inputName: 'RecordsKind', min: 1, max: 1, timeout: '8' });
     return sendYemot(res, 'הבחירה לא זוהתה. ' + menu(), { inputName: 'wm_nav', min: 1, max: 1, timeout: '5' });
   } catch (e) {
     const msg = String(e?.message || 'תקלה לא ידועה').replace(/[.=\r\n]/g, ' ').slice(0, 180);
